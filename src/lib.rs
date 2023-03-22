@@ -270,8 +270,8 @@ impl BwaAligner {
         let read1 = bwa_sys::bseq1_t {
             l_seq: r1.len() as i32,
             name: raw_name,
-            seq: r1.as_mut_ptr() as *mut i8,
-            qual: q1.as_mut_ptr() as *mut i8,
+            seq: r1.as_mut_ptr() as *mut u8,
+            qual: q1.as_mut_ptr() as *mut u8,
             comment: ptr::null_mut(),
             id: 0,
             sam: ptr::null_mut(),
@@ -280,8 +280,8 @@ impl BwaAligner {
         let read2 = bwa_sys::bseq1_t {
             l_seq: r2.len() as i32,
             name: raw_name,
-            seq: r2.as_mut_ptr() as *mut i8,
-            qual: q2.as_mut_ptr() as *mut i8,
+            seq: r2.as_mut_ptr() as *mut u8,
+            qual: q2.as_mut_ptr() as *mut u8,
             comment: ptr::null_mut(),
             id: 0,
             sam: ptr::null_mut(),
