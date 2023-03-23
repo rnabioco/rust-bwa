@@ -911,6 +911,14 @@ extern "C" {
     pub fn bwa_fill_scmat(a: ::std::os::raw::c_int, b: ::std::os::raw::c_int, mat: *mut i8);
 }
 extern "C" {
+    pub fn bwa_idx_build(
+        fa: *const ::std::os::raw::c_char,
+        prefix: *const ::std::os::raw::c_char,
+        algo_type: ::std::os::raw::c_int,
+        block_size: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+extern "C" {
     pub fn bwa_idx_load(
         hint: *const ::std::os::raw::c_char,
         which: ::std::os::raw::c_int,

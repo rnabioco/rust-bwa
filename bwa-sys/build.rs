@@ -2,6 +2,7 @@
 const FILES: &[&str] = &[
     "bwa/utils.c",
     "bwa/kthread.c",
+    "bwa/kstring.c",
     "bwa/ksw.c",
     "bwa/bwt.c",
     "bwa/bntseq.c",
@@ -10,10 +11,17 @@ const FILES: &[&str] = &[
     "bwa/bwamem_pair.c",
     "bwa/bwamem_extra.c",
     "bwa/malloc_wrap.c",
+    "bwa/QSufSort.c",
+    "bwa/bwt_gen.c",
+    "bwa/rope.c",
+    "bwa/rle.c",
+    "bwa/is.c",
+    "bwa/bwtindex.c"
 ];
 
 // make -C bwa-sys/bwa/ -nd libbwa.a | grep -o -E "[A-Za-z0-9_]+\.h" | sort | uniq
 const HEADERS: &[&str] = &[
+    "bwa/QSufSort.h",
     "bwa/bntseq.h",
     "bwa/bwa.h",
     "bwa/bwamem.h",
@@ -26,7 +34,11 @@ const HEADERS: &[&str] = &[
     "bwa/ksw.h",
     "bwa/kvec.h",
     "bwa/malloc_wrap.h",
-    "bwa/utils.h",
+    "bwa/neon_sse.h",
+    "bwa/rle.h",
+    "bwa/rope.h",
+    "bwa/scalar_sse.h",
+    "bwa/utils.h"
 ];
 
 fn main() {

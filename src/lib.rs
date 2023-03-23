@@ -142,6 +142,16 @@ impl BwaReference {
         })
     }
 
+    // Build a BWA reference from fasta. Pass the fasta filename of the
+    // original reference as `path`. 
+    pub fn build_index<P: AsRef<Path>>(path: P, algo: i32, block_size: i32) -> Result<i32, ReferenceError> {
+        let fa_file = path.as_ref().to_str().unwrap();
+        let cfa_file = CString::new(fa_file).unwrap();
+        let cprefix = CString::new(fa_file).unwrap();
+        let r = unsafe { bwa_sys::bwa_idx_build(cfa_file.as_ptr(), cprefix.as_ptr(), algo, block_size) }; 
+        Ok(r)
+    }
+
     pub fn create_bam_header(&self) -> Header {
         let mut header = Header::new();
         self.populate_bam_header(&mut header);
@@ -336,9 +346,26 @@ impl BwaAligner {
     }
 }
 
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_build_index() {
+        fs::copy("tests/test_ref.fa", "tests/test_idx.fa").unwrap();
+        let res = BwaReference::build_index("tests/test_idx.fa", 0, 1000000);
+        assert_eq!(res.unwrap(), 0);
+
+        fs::remove_file("tests/test_idx.fa").unwrap();
+        fs::remove_file("tests/test_idx.fa.amb").unwrap();
+        fs::remove_file("tests/test_idx.fa.ann").unwrap();
+        fs::remove_file("tests/test_idx.fa.bwt").unwrap();
+        fs::remove_file("tests/test_idx.fa.pac").unwrap();
+        fs::remove_file("tests/test_idx.fa.sa").unwrap();
+    }
 
     fn load_aligner() -> BwaAligner {
         let aln = BwaAligner::from_path("tests/test_ref.fa");

@@ -30,6 +30,7 @@ bindgen \
   --allowlist-function mem_align1_core \
   --allowlist-function mem_sam_pe \
   --allowlist-function mem_opt_init \
+  --allowlist-function bwa_idx_build \
   --allowlist-function bwa_idx_load \
   --allowlist-function bwa_idx_destroy \
   --allowlist-function mem_process_seq_pe \
