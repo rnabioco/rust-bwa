@@ -7,17 +7,30 @@
 //! back.
 //!
 //! ```
+//! extern crate seq_io;
 //! use bwa::BwaAligner;
-//!
+
+//! use seq_io::fastq;
+//! 
 //! let bwa = BwaAligner::from_path(&"tests/test_ref.fa").unwrap();
 //!
-//! let r1 = b"GATGGCTGCGCAAGGGTTCTTACTGATCGCCACGTTTTTACTGGTGTTAATGGTGCTGGCGCGTCCTTTAGGCAGCGGG";
-//! let q1 = b"2222222222222222222222222222222222222222222222222222222222222222222222222222222";
-//! let r2 = b"TGCTGCGTAGCAGATCGACCCAGGCATTCCCTAGCGTGCTCATGCTCTGGCTGGTAAACGCACGGATGAGGGCAAAAAT";
-//! let q2 = b"2222222222222222222222222222222222222222222222222222222222222222222222222222222";
-//!
-//! let (r1_alns, _r2_alns) = bwa.align_read_pair(b"read_name", r1, q1, r2, q2);
-//! println!("r1 mapping -- tid: {}, pos: {}", r1_alns[0].tid(), r1_alns[0].pos());
+//! let fastq = b"@id1
+//! GATGGCTGCGCAAGGGTTCTTACTGATCGCCACGTTTTTACTGGTGTTAATGGTGCTGGCGCGTCCTTTAGGCAGCGGG
+//! +
+//! IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+//! @id2
+//! TGCTGCGTAGCAGATCGACCCAGGCATTCCCTAGCGTGCTCATGCTCTGGCTGGTAAACGCACGGATGAGGGCAAAAAT
+//! +
+//! IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII";
+//! 
+//! // collect vector of fastq records
+//! let mut reader = fastq::Reader::new(&fastq[..]);
+//! let seqs = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+//! 
+//! let alns = bwa.align_fastq_records(&seqs, /* paired */ false).unwrap();
+//! 
+//! println!("mapping id1 -- tid: {}, pos: {}", alns[0].tid(), alns[0].pos());
+//! println!("mapping id2 -- tid: {}, pos: {}", alns[1].tid(), alns[1].pos());
 //! ```
 
 #![allow(non_upper_case_globals)]
@@ -378,6 +391,30 @@ impl BwaAligner {
         }
     }
     
+    /// Align an array of `seq_io::fastq::Records` to the reference and return a Vec
+    /// of alignments as `rust_htslib::bam::Records`.
+    pub fn align_fastq_records(
+        &self,
+        records: &[fastq::OwnedRecord],
+        paired: bool,
+    ) -> Result<Vec<Record>, BwaAlignmentError> {
+        Self::validate_paired_records(records, paired)?;
+        let (cnames, mut vseqs, mut vquals) = Self::extract_fastqs(records);
+        let mut bseqs = BseqVec::new(cnames, &mut vseqs, &mut vquals);
+        self.align_bseqs(paired, &mut bseqs);
+        if let Some(sams) = bseqs.to_sams() {
+            Ok(self.sams_to_bam_records(sams))
+        } else {
+            Err(BwaAlignmentError("An alignment error occurred".to_string()))
+        }
+    }
+
+    fn sams_to_bam_records(&self, sams: Vec<&CStr>) -> Vec<Record> {
+        sams.iter()
+            .flat_map(|s| self.parse_sam_to_records(s.to_bytes()))
+            .collect()
+    }
+
     fn align_bseqs(&self, paired: bool, bseqs: &mut BseqVec) {
         unsafe {
             let r = *(self.reference.bwt_data);
@@ -497,6 +534,7 @@ mod tests {
     use super::*;
     use std::fs;
     use seq_io::fastq::Reader;
+    use rust_htslib::bam::Record;
     extern crate itertools;
     use tests::itertools::Itertools;
 
@@ -604,6 +642,7 @@ mod tests {
         let recs = bwa.align_fastq_records_nested(&records, true).unwrap();
         assert_eq!(recs[0][0].pos(), 1330);
     }
+    // ***
 
     #[test]
     fn test_align_single_fastq() {
@@ -612,6 +651,30 @@ mod tests {
         let recs = bwa.align_fastq_records_nested(&records, false).unwrap();
         assert_eq!(recs[0][0].pos(), 1330);
     }
-    // *** 
+    
+    #[test]
+    fn test_example() {
+        let bwa = load_aligner();
+        let fastq = b"@id1\n\
+        GATGGCTGCGCAAGGGTTCTTACTGATCGCCACGTTTTTACTGGTGTTAATGGTGCTGGCGCGTCCTTTAGGCAGCGGG\n\
+        +\n\
+        IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n\
+        @id2\n\
+        TGCTGCGTAGCAGATCGACCCAGGCATTCCCTAGCGTGCTCATGCTCTGGCTGGTAAACGCACGGATGAGGGCAAAAAT\n\
+        +\n\
+        IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII";
+        
+        let mut reader = Reader::new(&fastq[..]);
+        let seqs = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+        
+        let alns = bwa.align_fastq_records(&seqs, /* paired */ false).unwrap();
+        assert_eq!(alns[0].pos(), 727877);
+        assert_eq!(alns[0].tid(), 1);
+
+        println!("mapping id1 -- tid: {}, pos: {}", alns[0].tid(), alns[0].pos());
+        println!("mapping id2 -- tid: {}, pos: {}", alns[1].tid(), alns[1].pos());
+
+        }
+
 }
 
