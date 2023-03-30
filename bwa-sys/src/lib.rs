@@ -1398,6 +1398,18 @@ extern "C" {
     pub fn mem_opt_init() -> *mut mem_opt_t;
 }
 extern "C" {
+    pub fn mem_process_seqs(
+        opt: *const mem_opt_t,
+        bwt: *const bwt_t,
+        bns: *const bntseq_t,
+        pac: *const u8,
+        n_processed: i64,
+        n: ::std::os::raw::c_int,
+        seqs: *mut bseq1_t,
+        pes0: *const mem_pestat_t,
+    );
+}
+extern "C" {
     pub fn mem_process_seq_pe(
         opt: *const mem_opt_t,
         bwt: *const bwt_t,

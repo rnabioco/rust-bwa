@@ -34,6 +34,7 @@ bindgen \
   --allowlist-function bwa_idx_load \
   --allowlist-function bwa_idx_destroy \
   --allowlist-function mem_process_seq_pe \
+  --allowlist-function mem_process_seqs \
   --allowlist-function bwa_fill_scmat \
   --allowlist-var "BWA_IDX_.*" \
   --allowlist-var "MEM_F_.*" \
@@ -43,5 +44,3 @@ bindgen \
 
 `bindgen` can be installed using `cargo install bindgen-cli`. See the documentation [here](https://rust-lang.github.io/rust-bindgen/command-line-usage.html).
 
-The bwa packaged here is @ commit 139f68fc4c3747813783a488aef2adc86626b01b 
-and further modified by commits within this repo. 

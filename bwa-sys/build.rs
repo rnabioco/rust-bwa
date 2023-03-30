@@ -2,7 +2,6 @@
 const FILES: &[&str] = &[
     "bwa/utils.c",
     "bwa/kthread.c",
-    "bwa/kstring.c",
     "bwa/ksw.c",
     "bwa/bwt.c",
     "bwa/bntseq.c",
@@ -11,8 +10,6 @@ const FILES: &[&str] = &[
     "bwa/bwamem_pair.c",
     "bwa/bwamem_extra.c",
     "bwa/malloc_wrap.c",
-    "bwa/QSufSort.c",
-    "bwa/bwt_gen.c",
     "bwa/rope.c",
     "bwa/rle.c",
     "bwa/is.c",
@@ -21,7 +18,6 @@ const FILES: &[&str] = &[
 
 // make -C bwa-sys/bwa/ -nd libbwa.a | grep -o -E "[A-Za-z0-9_]+\.h" | sort | uniq
 const HEADERS: &[&str] = &[
-    "bwa/QSufSort.h",
     "bwa/bntseq.h",
     "bwa/bwa.h",
     "bwa/bwamem.h",
