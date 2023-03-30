@@ -1,8 +1,9 @@
 # Rust-bwa 
 
-Rust-bwa is a Rust wrapper of the BWA api from 10x Genomics. Pass read-pair information in, and get Rust-htslib BAM records back.
+Rust-bwa is a Rust wrapper of the BWA api from 10x Genomics, further modified by kgori (https://github.com/kgori/rust-bwa). Pass read-pair information or a vector of seq_io fastq records in, and get Rust-htslib BAM records back.
 Get started quickly with default settings & a reasonable paired-end model. See docs for more details on customing
 parameters or the paired-end model.
+
 
 ```
 extern crate bwa;
