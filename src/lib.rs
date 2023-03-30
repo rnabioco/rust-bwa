@@ -488,8 +488,8 @@ impl BseqVec {
             let bseq = bwa_sys::bseq1_t {
                 l_seq: seqs[i].len() as i32,
                 name: names[i],
-                seq: seqs[i].as_mut_ptr() as *mut i8,
-                qual: quals[i].as_mut_ptr() as *mut i8,
+                seq: seqs[i].as_mut_ptr() as *mut c_char,
+                qual: quals[i].as_mut_ptr() as *mut c_char,
                 comment: std::ptr::null_mut(),
                 id: i as i32,
                 sam: std::ptr::null_mut(),
