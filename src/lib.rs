@@ -170,12 +170,13 @@ impl BwaReference {
     }
 
     // Build a BWA reference from fasta. Pass the fasta filename of the
-    // original reference as `path`. 
-    pub fn build_index<P: AsRef<Path>>(path: P, algo: i32, block_size: i32) -> Result<i32, ReferenceError> {
+    // original reference as `path`.
+    // valid values for algo are 0 (auto-determine), 1 (rb2), or 3 (is)  
+    pub fn build_index<P: AsRef<Path>>(path: P, algo: i32) -> Result<i32, ReferenceError> {
         let fa_file = path.as_ref().to_str().unwrap();
         let cfa_file = CString::new(fa_file).unwrap();
         let cprefix = CString::new(fa_file).unwrap();
-        let r = unsafe { bwa_sys::bwa_idx_build(cfa_file.as_ptr(), cprefix.as_ptr(), algo, block_size) }; 
+        let r = unsafe { bwa_sys::bwa_idx_build(cfa_file.as_ptr(), cprefix.as_ptr(), algo, -1) }; 
         Ok(r)
     }
 
@@ -541,7 +542,7 @@ mod tests {
     #[test]
     fn test_build_index() {
         fs::copy("tests/test_ref.fa", "tests/test_idx.fa").unwrap();
-        let res = BwaReference::build_index("tests/test_idx.fa", 0, 1000000);
+        let res = BwaReference::build_index("tests/test_idx.fa", 0);
         assert_eq!(res.unwrap(), 0);
 
         fs::remove_file("tests/test_idx.fa").unwrap();
