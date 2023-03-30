@@ -1,0 +1,4 @@
+[submodule "bwa-sys/bwa"]
+	path = bwa-sys/bwa
+	url = https://github.com/kriemo/bwa
+	branch = apache2_update
