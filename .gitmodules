@@ -1,4 +1,4 @@
 [submodule "bwa-sys/bwa"]
 	path = bwa-sys/bwa
-	url = git@github.com:rnabioco/bwa.git
+	url = https://github.com/rnabioco/bwa.git
 	branch = apache2_update
