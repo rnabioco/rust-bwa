@@ -1,21 +1,36 @@
 // Copyright (c) 2017 10X Genomics, Inc. All rights reserved.
+// With modifications https://github.com/kgori/rust-bwa @a63b52e
+// and subsequent modifications to enable seqio fastq parsing
 
 //! Rust-bwa provides a simple API wrapper around the BWA aligner.
 //! Pass read-pair information in, and get Rust-htslib BAM records
 //! back.
 //!
 //! ```
+//! extern crate seq_io;
 //! use bwa::BwaAligner;
-//!
+
+//! use seq_io::fastq;
+//! 
 //! let bwa = BwaAligner::from_path(&"tests/test_ref.fa").unwrap();
 //!
-//! let r1 = b"GATGGCTGCGCAAGGGTTCTTACTGATCGCCACGTTTTTACTGGTGTTAATGGTGCTGGCGCGTCCTTTAGGCAGCGGG";
-//! let q1 = b"2222222222222222222222222222222222222222222222222222222222222222222222222222222";
-//! let r2 = b"TGCTGCGTAGCAGATCGACCCAGGCATTCCCTAGCGTGCTCATGCTCTGGCTGGTAAACGCACGGATGAGGGCAAAAAT";
-//! let q2 = b"2222222222222222222222222222222222222222222222222222222222222222222222222222222";
-//!
-//! let (r1_alns, _r2_alns) = bwa.align_read_pair(b"read_name", r1, q1, r2, q2);
-//! println!("r1 mapping -- tid: {}, pos: {}", r1_alns[0].tid(), r1_alns[0].pos());
+//! let fastq = b"@id1
+//! GATGGCTGCGCAAGGGTTCTTACTGATCGCCACGTTTTTACTGGTGTTAATGGTGCTGGCGCGTCCTTTAGGCAGCGGG
+//! +
+//! IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+//! @id2
+//! TGCTGCGTAGCAGATCGACCCAGGCATTCCCTAGCGTGCTCATGCTCTGGCTGGTAAACGCACGGATGAGGGCAAAAAT
+//! +
+//! IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII";
+//! 
+//! // collect vector of fastq records
+//! let mut reader = fastq::Reader::new(&fastq[..]);
+//! let seqs = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+//! 
+//! let alns = bwa.align_fastq_records(&seqs, /* paired */ false).unwrap();
+//! 
+//! println!("mapping id1 -- tid: {}, pos: {}", alns[0].tid(), alns[0].pos());
+//! println!("mapping id2 -- tid: {}, pos: {}", alns[1].tid(), alns[1].pos());
 //! ```
 
 #![allow(non_upper_case_globals)]
@@ -27,6 +42,9 @@ extern crate rust_htslib;
 
 extern crate thiserror;
 
+extern crate bwa_sys;
+extern crate seq_io;
+
 use std::ffi::{CStr, CString};
 use std::path::Path;
 use std::ptr;
@@ -36,6 +54,9 @@ use std::os::raw::{c_char};
 use rust_htslib::bam::header::{Header, HeaderRecord};
 use rust_htslib::bam::record::Record;
 use rust_htslib::bam::HeaderView;
+
+use seq_io::fastq;
+use bwa_sys::bseq1_t;
 
 // include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
@@ -97,6 +118,11 @@ impl BwaSettings {
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 pub struct ReferenceError(String);
+
+// code from https://github.com/kgori/rust-bwa
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct BwaAlignmentError(String);
 
 /// A BWA reference object to perform alignments to.
 /// Must be loaded from a BWA index created with `bwa index`
@@ -330,6 +356,106 @@ impl BwaAligner {
         (recs1, recs2)
     }
 
+    
+    // code from https://github.com/kgori/rust-bwa  modified by kriemo ***
+    fn validate_paired_records(records: &[fastq::OwnedRecord], paired: bool) -> Result<(), BwaAlignmentError> {
+        if paired {
+            if records.len() & 1 == 1 {
+                return Err(BwaAlignmentError("Expected an even number of paired reads".to_string()));
+            }
+            if records.chunks(2).any(|a| a[0].head != a[1].head) {
+                return Err(BwaAlignmentError("Paired read names don't match".to_string()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Align an array of `seq_io::fastq::OwnedRecord` records to the reference and return a Vec
+    /// of subalignments for each `fastq::OwnedRecord` as a Vec of `bam::Records`.
+    pub fn align_fastq_records_nested(
+        &self,
+        records: &[fastq::OwnedRecord],
+        paired: bool,
+    ) -> Result<Vec<Vec<Record>>, BwaAlignmentError> {
+        Self::validate_paired_records(records, paired)?;
+        let (cnames, mut vseqs, mut vquals) = Self::extract_fastqs(records);
+        let mut bseqs = BseqVec::new(cnames, &mut vseqs, &mut vquals);
+        self.align_bseqs(paired, &mut bseqs);
+        if let Some(sams) = bseqs.to_sams() {
+            Ok(sams
+                .iter()
+                .map(|s| self.parse_sam_to_records(s.to_bytes()))
+                .collect())
+        } else {
+            Err(BwaAlignmentError("An alignment error occurred".to_string()))
+        }
+    }
+    
+    /// Align an array of `seq_io::fastq::Records` to the reference and return a Vec
+    /// of alignments as `rust_htslib::bam::Records`.
+    pub fn align_fastq_records(
+        &self,
+        records: &[fastq::OwnedRecord],
+        paired: bool,
+    ) -> Result<Vec<Record>, BwaAlignmentError> {
+        Self::validate_paired_records(records, paired)?;
+        let (cnames, mut vseqs, mut vquals) = Self::extract_fastqs(records);
+        let mut bseqs = BseqVec::new(cnames, &mut vseqs, &mut vquals);
+        self.align_bseqs(paired, &mut bseqs);
+        if let Some(sams) = bseqs.to_sams() {
+            Ok(self.sams_to_bam_records(sams))
+        } else {
+            Err(BwaAlignmentError("An alignment error occurred".to_string()))
+        }
+    }
+
+    fn sams_to_bam_records(&self, sams: Vec<&CStr>) -> Vec<Record> {
+        sams.iter()
+            .flat_map(|s| self.parse_sam_to_records(s.to_bytes()))
+            .collect()
+    }
+
+    fn align_bseqs(&self, paired: bool, bseqs: &mut BseqVec) {
+        unsafe {
+            let r = *(self.reference.bwt_data);
+            let mut settings = self.settings.bwa_settings;
+            if paired {
+                settings.flag |= bwa_sys::MEM_F_PE as i32;
+            } else {
+                settings.flag &= !(bwa_sys::MEM_F_PE as i32);
+            }
+            bwa_sys::mem_process_seqs(
+                &settings,
+                r.bwt,
+                r.bns,
+                r.pac,
+                0,
+                bseqs.inner.len() as i32,
+                bseqs.inner.as_mut_ptr(),
+                self.pe_stats.inner.as_ptr(),
+            );
+        }
+        bseqs.aligned = true;
+    }
+
+    fn extract_fastqs(records: &[fastq::OwnedRecord]) -> (Vec<*mut c_char>, Vec<Vec<u8>>, Vec<Vec<u8>>) {
+        let cnames = records
+            .iter()
+            .map(|rec| CString::new(rec.head.clone()).unwrap().into_raw())
+            .collect::<Vec<_>>();
+        let vseqs = records
+            .iter()
+            .map(|rec| Vec::from(rec.seq.clone()))
+            .collect::<Vec<_>>();
+        let vquals = records
+            .iter()
+            .map(|rec| Vec::from(rec.qual.clone()))
+            .collect::<Vec<_>>();
+        (cnames, vseqs, vquals)
+    }
+    
+    // ***
+
     fn parse_sam_to_records(&self, sam: &[u8]) -> Vec<Record> {
         let mut records = Vec::new();
 
@@ -347,12 +473,70 @@ impl BwaAligner {
     }
 }
 
+// code from https://github.com/kgori/rust-bwa  modified by kriemo ***
 
+/// A wrapper around a vector of the BWA sequence type bseq1_t
+struct BseqVec {
+    inner: Vec<bseq1_t>,
+    aligned: bool,
+}
+
+impl BseqVec {
+    fn new(names: Vec<*mut c_char>, seqs: &mut [Vec<u8>], quals: &mut [Vec<u8>]) -> BseqVec {
+        let mut bseqs = Vec::new();
+        for i in 0..names.len() {
+            let bseq = bwa_sys::bseq1_t {
+                l_seq: seqs[i].len() as i32,
+                name: names[i],
+                seq: seqs[i].as_mut_ptr() as *mut i8,
+                qual: quals[i].as_mut_ptr() as *mut i8,
+                comment: std::ptr::null_mut(),
+                id: i as i32,
+                sam: std::ptr::null_mut(),
+            };
+            bseqs.push(bseq);
+        }
+        BseqVec {
+            inner: bseqs,
+            aligned: false,
+        }
+    }
+
+    /// Extracts the SAM information from the aligned bseq1_ts as a vec of &CStr
+    fn to_sams(&self) -> Option<Vec<&CStr>> {
+        if !self.aligned {
+            return None;
+        }
+        let sams = self
+            .inner
+            .iter()
+            .map(|b| unsafe { CStr::from_ptr(b.sam) })
+            .collect::<Vec<_>>();
+        Some(sams)
+    }
+}
+
+impl Drop for BseqVec {
+    fn drop(&mut self) {
+        for bseq in &self.inner {
+            unsafe {
+                libc::free(bseq.name as *mut libc::c_void);
+                libc::free(bseq.sam as *mut libc::c_void);
+                libc::free(bseq.comment as *mut libc::c_void);
+            }
+        }
+    }
+}
+// ***
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+    use seq_io::fastq::Reader;
+    use rust_htslib::bam::Record;
+    extern crate itertools;
+    use tests::itertools::Itertools;
 
     #[test]
     fn test_build_index() {
@@ -430,5 +614,67 @@ mod tests {
             &hdr[..]
         );
     }
+    
+    // code from https://github.com/kgori/rust-bwa  modified by kriemo ***
+    fn read_fastqs() -> Result<Vec<fastq::OwnedRecord>, seq_io::fastq::Error> {
+        let mut reader1 = Reader::from_path("tests/test.1.fq").unwrap();
+        let mut reader2 = Reader::from_path("tests/test.2.fq").unwrap();
+
+        let records: Result<Vec<fastq::OwnedRecord>, _> =
+            reader1.records().interleave(reader2.records()).collect();
+
+        records
+    }
+
+    fn read_fastq() -> Result<Vec<fastq::OwnedRecord>, seq_io::fastq::Error> {
+        let mut reader1 = Reader::from_path("tests/test.1.fq").unwrap();
+
+        let records: Result<Vec<fastq::OwnedRecord>, _> =
+            reader1.records().collect();
+
+        records
+    }
+
+    #[test]
+    fn test_align_fastqs() {
+        let records = read_fastqs().unwrap();
+        let bwa = load_aligner();
+        let recs = bwa.align_fastq_records_nested(&records, true).unwrap();
+        assert_eq!(recs[0][0].pos(), 1330);
+    }
+    // ***
+
+    #[test]
+    fn test_align_single_fastq() {
+        let records = read_fastq().unwrap();
+        let bwa = load_aligner();
+        let recs = bwa.align_fastq_records_nested(&records, false).unwrap();
+        assert_eq!(recs[0][0].pos(), 1330);
+    }
+    
+    #[test]
+    fn test_example() {
+        let bwa = load_aligner();
+        let fastq = b"@id1\n\
+        GATGGCTGCGCAAGGGTTCTTACTGATCGCCACGTTTTTACTGGTGTTAATGGTGCTGGCGCGTCCTTTAGGCAGCGGG\n\
+        +\n\
+        IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n\
+        @id2\n\
+        TGCTGCGTAGCAGATCGACCCAGGCATTCCCTAGCGTGCTCATGCTCTGGCTGGTAAACGCACGGATGAGGGCAAAAAT\n\
+        +\n\
+        IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII";
+        
+        let mut reader = Reader::new(&fastq[..]);
+        let seqs = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+        
+        let alns = bwa.align_fastq_records(&seqs, /* paired */ false).unwrap();
+        assert_eq!(alns[0].pos(), 727877);
+        assert_eq!(alns[0].tid(), 1);
+
+        println!("mapping id1 -- tid: {}, pos: {}", alns[0].tid(), alns[0].pos());
+        println!("mapping id2 -- tid: {}, pos: {}", alns[1].tid(), alns[1].pos());
+
+        }
+
 }
 
